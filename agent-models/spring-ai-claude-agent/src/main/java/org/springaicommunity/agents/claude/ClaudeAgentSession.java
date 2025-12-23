@@ -19,9 +19,13 @@ package org.springaicommunity.agents.claude;
 import org.springaicommunity.agents.claude.sdk.config.PermissionMode;
 import org.springaicommunity.agents.claude.sdk.hooks.HookCallback;
 import org.springaicommunity.agents.claude.sdk.hooks.HookRegistry;
+import org.springaicommunity.agents.claude.sdk.types.TextBlock;
+import org.springaicommunity.agents.claude.sdk.types.ThinkingBlock;
+import org.springaicommunity.agents.claude.sdk.types.ToolResultBlock;
+import org.springaicommunity.agents.claude.sdk.types.ToolUseBlock;
+import org.springaicommunity.agents.claude.sdk.types.UserMessage;
 import org.springaicommunity.agents.claude.sdk.types.control.HookEvent;
 import org.springaicommunity.agents.claude.sdk.parsing.ParsedMessage;
-import org.springaicommunity.agents.claude.sdk.session.ClaudeSession;
 import org.springaicommunity.agents.claude.sdk.session.DefaultClaudeSession;
 import org.springaicommunity.agents.claude.sdk.transport.CLIOptions;
 import org.springaicommunity.agents.claude.sdk.types.AssistantMessage;
@@ -41,6 +45,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 
 /**
  * High-level session API for multi-turn conversations with Claude.
@@ -176,9 +181,15 @@ public class ClaudeAgentSession implements AutoCloseable {
 		Thread.startVirtualThread(() -> {
 			try {
 				for (AgentResponse response : receiveResponse()) {
+					if (response == null) {
+						sink.tryEmitComplete();
+                        break;
+					}
 					sink.tryEmitNext(response);
+                    if (response.getResults().getLast().getType().equals("result")) {
+                        sink.tryEmitComplete();
+                    }
 				}
-				sink.tryEmitComplete();
 			}
 			catch (Exception e) {
 				sink.tryEmitError(e);
@@ -335,9 +346,6 @@ public class ClaudeAgentSession implements AutoCloseable {
 
 		@Override
 		public AgentResponse next() {
-			if (!hasNext()) {
-				throw new NoSuchElementException();
-			}
 			AgentResponse result = next;
 			next = null;
 			return result;
@@ -345,20 +353,44 @@ public class ClaudeAgentSession implements AutoCloseable {
 
 		private AgentResponse convertToAgentResponse(Message message) {
 			if (message instanceof AssistantMessage assistantMessage) {
-				String text = assistantMessage.getTextContent().orElse("");
-				if (!text.isEmpty()) {
-					AgentGenerationMetadata metadata = new AgentGenerationMetadata("STREAMING", Map.of());
-					List<AgentGeneration> generations = List.of(new AgentGeneration(text, metadata));
-					return new AgentResponse(generations, new AgentResponseMetadata());
-				}
+                List<AgentGeneration> generations = assistantMessage.getContentBlocks().stream().map(block -> {
+                    if (block instanceof TextBlock textBlock) {
+                        return new AgentGeneration(textBlock.getType(), textBlock.text(),
+                                new AgentGenerationMetadata("STREAMING", Map.of()));
+                    } else if (block instanceof ToolUseBlock toolUseBlock) {
+                        Map<String, Object> fields = Map.of("id", toolUseBlock.id(), "name", toolUseBlock.name(),
+                                "input", toolUseBlock.input());
+                        return new AgentGeneration(toolUseBlock.getType(), "",
+                                new AgentGenerationMetadata("STREAMING", fields));
+                    } else if (block instanceof ToolResultBlock toolResultBlock) {
+                        return new AgentGeneration(toolResultBlock.getType(), toolResultBlock.getContentAsString(),
+                                new AgentGenerationMetadata("STREAMING", Map.of()));
+                    } else if (block instanceof ThinkingBlock thinkingBlock) {
+                        return new AgentGeneration(thinkingBlock.getType(), thinkingBlock.thinking(),
+                                new AgentGenerationMetadata("STREAMING", Map.of()));
+                    } else {
+                        return new AgentGeneration(block.getType(), "", new AgentGenerationMetadata("STREAMING", Map.of()));
+                    }
+                }).toList();
+				return new AgentResponse(generations, new AgentResponseMetadata());
 			}
 			else if (message instanceof ResultMessage resultMessage) {
 				String text = resultMessage.result() != null ? resultMessage.result() : "";
 				String finishReason = resultMessage.isError() ? "ERROR" : "SUCCESS";
 				AgentGenerationMetadata metadata = new AgentGenerationMetadata(finishReason, Map.of());
-				List<AgentGeneration> generations = List.of(new AgentGeneration(text, metadata));
+				List<AgentGeneration> generations = List
+					.of(new AgentGeneration(resultMessage.getType(), text, metadata));
 				return new AgentResponse(generations, new AgentResponseMetadata());
-			}
+			} else if (message instanceof UserMessage userMessage) {
+                List<AgentGeneration> generations = userMessage.getContentAsBlocks().stream().map(block -> {
+                    if (block instanceof ToolResultBlock toolResultBlock) {
+                        return new AgentGeneration(toolResultBlock.getType(), toolResultBlock.getContentAsString(),
+                                new AgentGenerationMetadata("STREAMING", Map.of()));
+                    }
+                    return null;
+                }).filter(Objects::nonNull).toList();
+                return new AgentResponse(generations, new AgentResponseMetadata());
+            }
 			return null;
 		}
 

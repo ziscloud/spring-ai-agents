@@ -29,6 +29,11 @@ import org.springaicommunity.agents.claude.sdk.transport.CLIOptions;
 import org.springaicommunity.agents.claude.sdk.types.AssistantMessage;
 import org.springaicommunity.agents.claude.sdk.types.Message;
 import org.springaicommunity.agents.claude.sdk.types.ResultMessage;
+import org.springaicommunity.agents.claude.sdk.types.TextBlock;
+import org.springaicommunity.agents.claude.sdk.types.ThinkingBlock;
+import org.springaicommunity.agents.claude.sdk.types.ToolResultBlock;
+import org.springaicommunity.agents.claude.sdk.types.ToolUseBlock;
+import org.springaicommunity.agents.claude.sdk.types.UserMessage;
 import org.springaicommunity.agents.claude.sdk.types.control.ControlRequest;
 import org.springaicommunity.agents.claude.sdk.types.control.ControlResponse;
 import org.springaicommunity.agents.claude.sdk.types.control.HookInput;
@@ -52,6 +57,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -510,20 +516,42 @@ public class ClaudeAgentModel implements AgentModel, StreamingAgentModel, Iterab
 
 	private AgentResponse convertMessageToResponse(Message message) {
 		if (message instanceof AssistantMessage assistantMessage) {
-			String text = assistantMessage.getTextContent().orElse("");
-			if (!text.isEmpty()) {
-				AgentGenerationMetadata metadata = new AgentGenerationMetadata("STREAMING", Map.of());
-				List<AgentGeneration> generations = List.of(new AgentGeneration(text, metadata));
-				return new AgentResponse(generations, new AgentResponseMetadata());
-			}
-		}
-		else if (message instanceof ResultMessage resultMessage) {
+            List<AgentGeneration> generations = assistantMessage.getContentBlocks().stream().map(block -> {
+                if (block instanceof TextBlock textBlock) {
+                    return new AgentGeneration(textBlock.getType(), textBlock.text(),
+                            new AgentGenerationMetadata("STREAMING", Map.of()));
+                } else if (block instanceof ToolUseBlock toolUseBlock) {
+                    Map<String, Object> fields = Map.of("id", toolUseBlock.id(), "name", toolUseBlock.name(),
+                            "input", toolUseBlock.input());
+                    return new AgentGeneration(toolUseBlock.getType(), "",
+                            new AgentGenerationMetadata("STREAMING", fields));
+                } else if (block instanceof ToolResultBlock toolResultBlock) {
+                    return new AgentGeneration(toolResultBlock.getType(), toolResultBlock.getContentAsString(),
+                            new AgentGenerationMetadata("STREAMING", Map.of()));
+                } else if (block instanceof ThinkingBlock thinkingBlock) {
+                    return new AgentGeneration(thinkingBlock.getType(), thinkingBlock.thinking(),
+                            new AgentGenerationMetadata("STREAMING", Map.of()));
+                } else {
+                    return new AgentGeneration(block.getType(), "", new AgentGenerationMetadata("STREAMING", Map.of()));
+                }
+            }).toList();
+			return new AgentResponse(generations, new AgentResponseMetadata());
+		} else if (message instanceof ResultMessage resultMessage) {
 			String text = resultMessage.result() != null ? resultMessage.result() : "";
 			String finishReason = resultMessage.isError() ? "ERROR" : "SUCCESS";
 			AgentGenerationMetadata metadata = new AgentGenerationMetadata(finishReason, Map.of());
-			List<AgentGeneration> generations = List.of(new AgentGeneration(text, metadata));
+			List<AgentGeneration> generations = List.of(new AgentGeneration(resultMessage.getType(), text, metadata));
 			return new AgentResponse(generations, new AgentResponseMetadata());
-		}
+		} else if (message instanceof UserMessage userMessage) {
+            List<AgentGeneration> generations = userMessage.getContentAsBlocks().stream().map(block -> {
+                if (block instanceof ToolResultBlock toolResultBlock) {
+                    return new AgentGeneration(toolResultBlock.getType(), toolResultBlock.getContentAsString(),
+                            new AgentGenerationMetadata("STREAMING", Map.of()));
+                }
+                return null;
+            }).filter(Objects::nonNull).toList();
+            return new AgentResponse(generations, new AgentResponseMetadata());
+        }
 		return null;
 	}
 

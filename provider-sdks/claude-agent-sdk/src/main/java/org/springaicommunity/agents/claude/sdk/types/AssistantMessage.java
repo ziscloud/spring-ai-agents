@@ -71,6 +71,14 @@ public record AssistantMessage(@JsonProperty("content") List<ContentBlock> conte
 	}
 
 	/**
+	 * Returns all content blocks in this message.
+	 * @return list of content blocks
+	 */
+	public List<ContentBlock> getContentBlocks() {
+		return content;
+	}
+
+	/**
 	 * Factory method to create an AssistantMessage from content blocks.
 	 * @param content the content blocks
 	 * @return new AssistantMessage instance

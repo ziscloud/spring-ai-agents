@@ -33,24 +33,46 @@ import org.springframework.ai.model.ModelResult;
  */
 public class AgentGeneration implements ModelResult<String> {
 
+	private final String type;
+
 	private final String text;
 
 	private final AgentGenerationMetadata agentGenerationMetadata;
 
-	/**
-	 * Create a new AgentGeneration with the specified text.
+    /**
+     * Create a new AgentGeneration with the specified text.
+     * @param text the text content
+     */
+    public AgentGeneration(String text) {
+        this("text", text, AgentGenerationMetadata.NULL);
+    }
+
+    /**
+	 * Create a new AgentGeneration with type and text.
+	 * @param type the type of generation
 	 * @param text the text content
 	 */
-	public AgentGeneration(String text) {
-		this(text, AgentGenerationMetadata.NULL);
+	public AgentGeneration(String type, String text) {
+		this(type, text, AgentGenerationMetadata.NULL);
 	}
 
+    /**
+     * Create a new AgentGeneration with text and metadata.
+     * @param text the text content
+     * @param metadata the generation metadata
+     */
+    public AgentGeneration(String text, AgentGenerationMetadata metadata) {
+        this("text", text, metadata);
+    }
+
 	/**
-	 * Create a new AgentGeneration with text and metadata.
+	 * Create a new AgentGeneration with type, text, and metadata.
+	 * @param type the type of generation
 	 * @param text the text content
 	 * @param metadata the generation metadata
 	 */
-	public AgentGeneration(String text, AgentGenerationMetadata metadata) {
+	public AgentGeneration(String type, String text, AgentGenerationMetadata metadata) {
+		this.type = type;
 		this.text = text != null ? text : "";
 		this.agentGenerationMetadata = metadata != null ? metadata : AgentGenerationMetadata.NULL;
 	}
@@ -73,6 +95,14 @@ public class AgentGeneration implements ModelResult<String> {
 		return this.text;
 	}
 
+	/**
+	 * Get the type of this generation.
+	 * @return the type
+	 */
+	public String getType() {
+		return type;
+	}
+
 	@Override
 	public boolean equals(Object o) {
 		if (this == o)
@@ -90,7 +120,8 @@ public class AgentGeneration implements ModelResult<String> {
 
 	@Override
 	public String toString() {
-		return "AgentGeneration[" + "text=" + this.text + ", agentGenerationMetadata=" + this.agentGenerationMetadata
+		return "AgentGeneration[" + "type=" + this.type + ", text=" + this.text
+                + ", agentGenerationMetadata=" + this.agentGenerationMetadata
 				+ ']';
 	}
 
